@@ -1,0 +1,93 @@
+#!/usr/bin/env python3
+"""
+WiFi Speed Test
+Measures ping, download speed and upload speed.
+No extra libraries needed - uses only Python's standard library.
+Run:  python speedtest.py
+"""
+
+import os
+import statistics
+import time
+import urllib.request
+
+BASE_URL = "https://speed.cloudflare.com"
+DOWNLOAD_BYTES = 25_000_000  # 25 MB
+UPLOAD_BYTES = 10_000_000    # 10 MB
+PING_COUNT = 8
+TIMEOUT = 30
+HEADERS = {"User-Agent": "Mozilla/5.0 (wifi-speed-test)"}
+
+
+def make_request(url, data=None):
+    return urllib.request.Request(url, data=data, headers=HEADERS)
+
+
+def test_ping():
+    """Returns (average ms, minimum ms, jitter ms)."""
+    times = []
+    for _ in range(PING_COUNT):
+        start = time.perf_counter()
+        with urllib.request.urlopen(make_request(f"{BASE_URL}/__down?bytes=0"), timeout=TIMEOUT) as r:
+            r.read()
+        times.append((time.perf_counter() - start) * 1000)
+    jitter = statistics.pstdev(times) if len(times) > 1 else 0
+    return statistics.mean(times), min(times), jitter
+
+
+def test_download():
+    """Returns download speed in Mbps."""
+    url = f"{BASE_URL}/__down?bytes={DOWNLOAD_BYTES}"
+    total = 0
+    start = time.perf_counter()
+    with urllib.request.urlopen(make_request(url), timeout=TIMEOUT) as r:
+        while True:
+            chunk = r.read(64 * 1024)
+            if not chunk:
+                break
+            total += len(chunk)
+    elapsed = time.perf_counter() - start
+    return (total * 8) / elapsed / 1_000_000
+
+
+def test_upload():
+    """Returns upload speed in Mbps."""
+    data = os.urandom(UPLOAD_BYTES)
+    start = time.perf_counter()
+    with urllib.request.urlopen(make_request(f"{BASE_URL}/__up", data=data), timeout=TIMEOUT) as r:
+        r.read()
+    elapsed = time.perf_counter() - start
+    return (UPLOAD_BYTES * 8) / elapsed / 1_000_000
+
+
+def main():
+    print("=" * 40)
+    print("        WiFi Speed Test")
+    print("=" * 40)
+
+    try:
+        print("Testing ping...      ", end="", flush=True)
+        avg, low, jitter = test_ping()
+        print(f"{avg:.1f} ms (min {low:.1f} ms, jitter {jitter:.1f} ms)")
+
+        print("Testing download...  ", end="", flush=True)
+        down = test_download()
+        print(f"{down:.2f} Mbps")
+
+        print("Testing upload...    ", end="", flush=True)
+        up = test_upload()
+        print(f"{up:.2f} Mbps")
+    except Exception as e:
+        print(f"\nError: {e}")
+        print("Check your internet connection and try again.")
+        return
+
+    print("-" * 40)
+    print(f"Ping     : {avg:.1f} ms")
+    print(f"Download : {down:.2f} Mbps")
+    print(f"Upload   : {up:.2f} Mbps")
+    print("=" * 40)
+
+
+if __name__ == "__main__":
+    main()
